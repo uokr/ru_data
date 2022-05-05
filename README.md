@@ -1,13 +1,13 @@
 config file ru_data.ini example
 
-[Account]
-Login = ***
-Password = ***
-[Yandex]
-Login = ***
-Password = ***
-[Mailing]
-; Type might be Script/Yandex/cbr
-Type = Yandex
-To = ***
-Script = ***
+[Account] <br />
+Login = *** <br />
+Password = *** <br />
+[Yandex] <br />
+Login = *** <br />
+Password = *** <br />
+[Mailing] <br />
+; Type might be Script/Yandex/cbr <br />
+Type = Yandex <br />
+To = *** <br />
+Script = *** <br />
