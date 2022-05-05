@@ -1,3 +1,6 @@
+RU Data parser for official API https://docs.efir-net.ru/dh2/#/
+
+
 config file ru_data.ini example
 
 [Account] <br />
@@ -10,7 +13,7 @@ Password = *** <br />
 ; Type might be Script/Yandex/cbr <br />
 Type = Yandex <br />
 To = *** <br />
-Script = *** <br />
+ScriptPath = *** <br /> 
 [Settings] <br />
 MainFolder = *** <br />
 MainRequestUrl = https://dh2.efir-net.ru/v2/ <br />
