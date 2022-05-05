@@ -11,3 +11,6 @@ Password = *** <br />
 Type = Yandex <br />
 To = *** <br />
 Script = *** <br />
+[Settings] <br />
+MainFolder = *** <br />
+MainRequestUrl = https://dh2.efir-net.ru/v2/ <br />
