@@ -7,7 +7,7 @@ config file ru_data.ini example
 Login = *** <br />
 Password = *** <br />
 [Yandex] <br />
-Login = *** <br />
+Login = user@yandex.ru <br />
 Password = *** <br />
 [Mailing] <br />
 ; Type might be Script/Yandex/cbr <br />
