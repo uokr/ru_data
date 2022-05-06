@@ -54,6 +54,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 import configparser
+import pandas as pd
+import markdown
+from dicttoxml import dicttoxml
+import glob
 
 config = configparser.ConfigParser()
 config.read("ru_data.ini");
@@ -107,66 +111,107 @@ def get_dates(start_date = None,end_date=None):
     return {"dates":dates,"nsi_delta":nsi_delta}
 
 
+def nsi_data_path(method,file_ext):
+    return os.path.join(main_folder,'Today',method.split("/")[-1]+'.'+file_ext)
+    
 
-def save_json(request,path):
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(request.json(), f, ensure_ascii=False, indent=4)
-        
-def download_nsi(headers,nsi_delta):
+def download_nsi(headers,nsi_delta,file_ext):
     update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
     update_date = "UPDATE_DATE > #{update_date}#".format(update_date=update_date)
     
-
+    method = "Info/EmitentsExt"
     list_emitents=requests.post(
-            MainRequestUrl+"Info/EmitentsExt",
+            MainRequestUrl+method,
             data=json.dumps({"count":100000,"inn_as_string":"TRUE",                                                                          
                 "filter": update_date}),
             headers=headers)
-    save_json(list_emitents,os.path.join(main_folder,'Today','ListEmitents.json'))
+    save_data(list_emitents,nsi_data_path(method,file_ext),method=method)
 
-
+    method = "Info/Securities"
     list_securities=requests.post(
             MainRequestUrl+"Info/Securities",
             data=json.dumps({"count":100000,                                                                    
                 "filter": update_date}),
             headers=headers)
-    save_json(list_securities,os.path.join(main_folder,'Today','ListSecurities.json'))
+    save_data(list_securities,nsi_data_path(method,file_ext),method = method)
 
-
+    method = "Rating/ListRatings"
     list_ratings=requests.post(
-            MainRequestUrl+"Rating/ListRatings",
+            MainRequestUrl+method,
             data=json.dumps({"count":100000}),
             headers=headers)
-    save_json(list_ratings,os.path.join(main_folder,'Today','ListRatings.json'))
+    save_data(list_ratings,nsi_data_path(method,file_ext),method = method)
 
-
+    method = "Rating/ListScaleValues"
     list_scale_values=requests.post(
-            MainRequestUrl+"Rating/ListScaleValues",
+            MainRequestUrl+method,
             data=json.dumps({"count":100000}), 
             headers=headers)
-    save_json(list_scale_values,os.path.join(main_folder,'Today','ListScaleValues.json'))
+    save_data(list_scale_values,nsi_data_path(method,file_ext),method = method)
     
-    return {"list_emitents":list_emitents.json(),
-           "list_securities":list_securities.json(),
-           "list_ratings":list_ratings.json(),
-           "list_scale_values":list_scale_values.json()}
+    return {"list_emitents":pd.DataFrame(list_emitents.json()),
+           "list_securities":pd.DataFrame(list_securities.json()),
+           "list_ratings":pd.DataFrame(list_ratings.json()),
+           "list_scale_values":pd.DataFrame(list_scale_values.json())}
     
-def download_ratings(headers,date):
+def download_ratings(headers,date,file_ext):
+    
+    method = "Rating/CompanyRatingsHist"
+    
     company_ratings=requests.post(
-        MainRequestUrl+"Rating/CompanyRatingsHist",
+        MainRequestUrl+method,
         data=json.dumps({"count":100000,                                                                      
           "dateFrom":"1900-01-01","dateTo":date}),
         headers=headers)
-    save_json(company_ratings,os.path.join(main_folder,'Today','CompanyRatingsHist_'+date+'.json'))
+    save_data(company_ratings,os.path.join(main_folder,'Today',method.split("/")[-1]+'_'+date+'.'+file_ext),method = method)
  
 
+    method = "Rating/SecurityRatingsHist"
     sec_ratings=requests.post(
-            MainRequestUrl+"Rating/SecurityRatingsHist",
+            MainRequestUrl+method,
             data=json.dumps({"count":100000,
                 "dateFrom":"1900-01-01","dateTo":date}),
             headers=headers)
-    save_json(company_ratings,os.path.join(main_folder,'Today','SecurityRatingsHist_'+date+'.json'))
-    return {"company_ratings":company_ratings.json(),"sec_ratings":sec_ratings}
+    save_data(company_ratings,os.path.join(main_folder,'Today',method.split("/")[-1]+'_'+date+'.'+file_ext),method = method)
+    
+    return {"company_ratings":pd.DataFrame(company_ratings.json()),"sec_ratings":pd.DataFrame(sec_ratings.json())}
+
+def get_metadata_xml(method,ret_df = False):
+    req = requests.get(config["Settings"]["MetadataUrl"]+method+".md")
+    metadata = pd.read_html(markdown.markdown(req.text,extensions=['tables']))[-1][["Наименование","Тип"]]
+    metadata.columns = ["name","type"]
+    metadata["name"] = metadata["name"].str.upper()
+    
+    if ret_df:
+        return metadata
+    else:
+        metadata = metadata.to_dict("records")
+        metadata = "".join(["""<column name="{name}" type="{type}"/>""".format(**d) for d in metadata])
+        metadata = """<?xml version="1.0" encoding="utf-8"?><tableResult><metadata /><columns>""" + metadata + "</columns>"
+        return metadata
+
+def json_to_xml(data_json):
+    xml = dicttoxml(data_json,custom_root="rows", item_func=lambda x:"row",attr_type=False)
+    xml = xml.decode()
+    return xml
+
+def save_data(request,path,method = None):
+    file_extension = path.split(".")[-1] 
+    if file_extension == "json":
+        save_json(request,path)
+    elif file_extension == "xml":
+        save_xml(request,path,method)
+            
+def save_xml(request,path,method):
+    xml = get_metadata_xml(method)+json_to_xml(request.json()) 
+    with open(path,'w', encoding='utf-8') as f:
+        f.write(xml)
+
+        
+def save_json(request,path):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(request.json(), f, ensure_ascii=False, indent=4)
+
 
 def send_yandex_driver(subject,filepath):
 
@@ -190,6 +235,11 @@ def send_yandex_driver(subject,filepath):
     smtp.sendmail(config["Yandex"]["Login"], config["Mailing"]["To"], msg.as_string())
     smtp.quit()
 
+def clear_folder():
+    files = glob.glob(os.path.join(config["Settings"]["MainFolder"],"Today","*"))
+    for f in files:
+        os.remove(f)
+    
 def download_ru_data_main(send = False,ret_result = False):
     """
     downloads,save and send data (if send=True)
@@ -209,18 +259,20 @@ def download_ru_data_main(send = False,ret_result = False):
             os.remove(os.path.join(main_folder,"TodayRatings.zip"))
         except Exception:
             pass
-
+        #delete previous files
+        clear_folder()
         dates = get_dates(start_date=None,end_date=None)
         for date in dates["dates"]:
-            data = download_ratings(headers,date)
+            data = download_ratings(headers,date,"xml")
             result.update(data)
-        nsi = download_nsi(headers,dates["nsi_delta"])
+        nsi = download_nsi(headers,dates["nsi_delta"],"xml")
         result.update(nsi)
         
         #make archive
         shutil.make_archive(os.path.join(main_folder,"TodayRatings"), 'zip', os.path.join(main_folder,"Today"))
         time.sleep(10)
-        mailto=config["Mailing"]["To"]
+        #delete downloaded files
+        clear_folder()
 
         #send
         if send:
