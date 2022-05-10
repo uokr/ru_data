@@ -10,7 +10,7 @@ Password = *** <br />
 Login = user@yandex.ru <br />
 Password = *** <br />
 [Mailing] <br />
-; Type might be Script/Yandex/cbr <br />
+; Type might be Script/Yandex <br />
 Type = Yandex <br />
 To = user@domain.com <br />
 ScriptPath = C:\\Users\\UserName\\Documents\\Python\\RU_DATA\\SendMail.vbs <br /> 
