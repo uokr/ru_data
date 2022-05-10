@@ -12,17 +12,27 @@ lib for downloading following data from RU Data API:
 4. send Zip file using Yandex: send_yandex_driver
 
 
-Attributes
+
 -- config file (see README)
     must be in the same folder as ru_data.py
--- main_folder
-    folder to save data
--- MainRequestUrl
-    api url
     
        
+Class
+--RuData
 Methods
 -- login
+-- logoff
+-- download_nsi
+    downloading nsi for  1. and 2.
+-- download_ratings
+    downloading data for 3.
+-- download_ru_data_main
+    Main function for downloading all data
+-- api_request
+    Method for creating,sending and save request
+
+
+Functions
 -- get_dates (Defining dates)
     - NSI (1.): 10 previous days and 90 previous days on monday 
     - Ratings Dict (2.): current data always
@@ -31,12 +41,6 @@ Methods
             for previous 5 days for every input date
 -- save_json
     saves request response to json file
--- download_nsi
-    downloading nsi for  1. and 2.
--- download_ratings
-    downloading data for 3.
--- download_ru_data_main
-    Main function for downloading all data
 
 example:
     see download_ru_data_main
@@ -64,19 +68,193 @@ config.read("ru_data.ini");
 main_folder = config["Settings"]["MainFolder"]
 MainRequestUrl = config["Settings"]["MainRequestUrl"]
 
-def login():
-    LoginData={"login":config["Account"]["Login"],"password":config["Account"]["Password"]}
-    LoginUrl=MainRequestUrl+"Account/Login"
-    req=requests.post(LoginUrl,data=json.dumps(LoginData), headers={"Content-Type": "application/json"}).json()
+class RuData():
     
-    if "token" in req.keys():
-        req["headers"] = headers = {"Content-Type": "application/json","Authorization":"Bearer "+ req["token"]}
-    else:
-        req = None
-    
-    return req
+    def __init__(self,login = False,file_save_ext = "xml",download = False):
+        
+        self.config = configparser.ConfigParser()
+        self.config.read("ru_data.ini");
+        
+        if file_save_ext not in ["json","xml"]:
+            raise Exception("Unsupported file_save_ext. xml/json only possible now")
+        self.file_save_ext = file_save_ext
+        
+        self.headers = None
+        self.is_logged = False 
+        
+        if login:
+            self.login()
+        if download:
+            self.main_download(ret_result=False,send=True)
+        
+    def login(self):
+        LoginData = {"login":self.config["Account"]["Login"],"password":self.config["Account"]["Password"]}  
+        LoginUrl = self.config["Settings"]["MainRequestUrl"]+"Account/Login"
+        req=requests.post(LoginUrl,data=json.dumps(LoginData), headers={"Content-Type": "application/json"}).json()
 
-def get_dates_for_history(start_date,end_date):
+        if "token" in req.keys():
+            self.token = req["token"]
+            self.headers = {"Content-Type": "application/json","Authorization":"Bearer "+ self.token}
+            self.is_logged = True
+    
+    def logoff(self):
+        requests.post(
+            self.config["Settings"]["MainRequestUrl"]+"Account/Logoff",
+            headers=self.headers)
+    
+    def nsi_data_path(self,method):
+        return os.path.join(self.config["Settings"]["MainFolder"],'Today',method.split("/")[-1]+'.'+self.file_save_ext)
+    def ratings_path(self,method,date):
+        return os.path.join(self.config["Settings"]["MainFolder"],'Today',method.split("/")[-1]+'_'+date+'.'+self.file_save_ext)
+    
+    
+    def save_data(self,request,method,path = None):
+        if path is None:
+            path = self.nsi_data_path(method)
+
+        if self.file_save_ext == "json":
+            save_json(request,path)
+        elif self.file_save_ext == "xml":
+            self.save_xml(request,path,method)
+    
+    def save_xml(self,request,path,method):
+        xml = self.get_metadata_xml(method)+json_to_xml(request.json()) 
+        with open(path,'w', encoding='utf-8') as f:
+            f.write(xml)
+
+    def get_metadata_xml(self,method,ret_format = "xml"):
+        req = requests.get(self.config["Settings"]["MetadataUrl"]+method+".md")
+        metadata = pd.read_html(markdown.markdown(req.text,extensions=['tables']))[-1][["Наименование","Тип"]]
+        metadata.columns = ["name","type"]
+        metadata["name"] = metadata["name"].str.upper()
+
+        if ret_format == "df":
+            return metadata
+        else:
+            metadata = metadata.to_dict("records")
+            metadata = "".join(["""<column name="{name}" type="{type}"/>""".format(**d) for d in metadata])
+            metadata = """<?xml version="1.0" encoding="utf-8"?><tableResult><metadata /><columns>""" + metadata + "</columns>"
+            return metadata
+
+     
+    
+    def api_request(self,method,**kwargs):
+
+        data = {"count":100000}
+        for key,value in kwargs.items():
+            if key not in ["path"]:
+                data[key] = value
+
+        result = requests.post(
+                self.config["Settings"]["MainRequestUrl"]+method,
+                data=json.dumps(data),
+                headers=self.headers)
+        if "path" in kwargs.keys():
+            path = kwargs["path"]
+        else:
+            path = None
+       
+        self.save_data(result,method,path=path)
+        result = pd.DataFrame(result.json())
+        
+        return result
+
+    def download_nsi(self,nsi_delta):
+        update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
+        update_date = f"UPDATE_DATE > #{update_date}#"
+
+        list_emitents = self.api_request("Info/EmitentsExt",filter=update_date)
+        list_securities = self.api_request("Info/Securities",filter=update_date)
+
+        list_ratings = self.api_request("Rating/ListRatings")
+        list_scale_values = self.api_request("Rating/ListScaleValues")
+
+
+        return {"list_emitents":list_emitents,
+               "list_securities":list_securities,
+               "list_ratings":list_ratings,
+               "list_scale_values":list_scale_values}    
+    
+    def download_ratings(self,date):
+    
+        method = "Rating/CompanyRatingsHist"
+        company_ratings = self.api_request(method,dateFrom="1900-01-01",dateTo=date,path=self.ratings_path(method,date))
+
+        method = "Rating/SecurityRatingsHist"
+        sec_ratings = self.api_request(method,dateFrom="1900-01-01",dateTo=date,path=self.ratings_path(method,date))
+
+
+        return {"company_ratings":company_ratings,"sec_ratings":sec_ratings}
+
+
+    def main_download(self,ret_result = False,send = False):
+        
+        result = {}
+        
+        if not self.is_logged:
+            self.login()
+            
+        #delete previous files
+        try:
+            os.remove(os.path.join(self.config["Settings"]["MainFolder"],"TodayRatings.zip"))
+        except Exception:
+            pass
+        clear_folder(self.config)
+        
+        dates = get_dates(start_date=None,end_date=None)
+        for date in dates["dates"]:
+            data = self.download_ratings(date)
+            result.update(data)
+        nsi = self.download_nsi(dates["nsi_delta"])
+        result.update(nsi)
+        
+        #make archive
+        shutil.make_archive(os.path.join(self.config["Settings"]["MainFolder"],"TodayRatings"), 'zip', os.path.join(self.config["Settings"]["MainFolder"],"Today"))
+        time.sleep(10)
+        #delete downloaded files
+        clear_folder(self.config)
+
+        #send
+        if send:
+            if self.config["Mailing"]["Type"] == "Script":
+                os.system(self.config["Mailing"]["ScriptPath"])
+            elif config["Mailing"]["Type"] == "Yandex":
+                send_yandex_driver(self.config)
+
+        #finish
+        
+        self.logoff()
+        
+        if not ret_result:
+            result = None
+        return result
+            
+            
+def send_yandex_driver(config):
+
+    filepath = os.path.join(config["Settings"]["MainFolder"],config["Settings"]["AttachmentFileName"])
+    # Compose attachment
+    part = MIMEBase('application', "octet-stream")
+    part.set_payload(open(filepath,"rb").read() )
+    encoders.encode_base64(part)
+    part.add_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(filepath))
+
+    # Compose message
+    msg = MIMEMultipart()
+    msg['From'] = config["Yandex"]["Login"]
+    msg['To'] = config["Mailing"]["To"]
+    msg["Subject"]="RatingsHistory"
+    msg.attach(part)
+
+    # Send mail
+    smtp = smtplib.SMTP_SSL('smtp.yandex.ru')
+    smtp.connect('smtp.yandex.ru')
+    smtp.login(config["Yandex"]["Login"], config["Yandex"]["Password"])
+    smtp.sendmail(config["Yandex"]["Login"], config["Mailing"]["To"], msg.as_string())
+    smtp.quit()
+    
+
+def get_dates_period(start_date,end_date):
     start_date = datetime.strptime(start_date,"%d.%m.%Y").date()
     end_date = datetime.strptime(end_date,"%d.%m.%Y").date()
     delta = (end_date - start_date).days
@@ -99,7 +277,7 @@ def get_dates(start_date = None,end_date=None):
         print("Need to define both start_date and end_date)")
         return None
     elif ct_none == 0:
-        dates = get_dates_for_history(start_date,end_date)
+        dates = get_dates_period(start_date,end_date)
     else:
         
         if datetime.now().weekday() == 0:
@@ -111,182 +289,28 @@ def get_dates(start_date = None,end_date=None):
     return {"dates":dates,"nsi_delta":nsi_delta}
 
 
-def nsi_data_path(method,file_ext):
-    return os.path.join(main_folder,'Today',method.split("/")[-1]+'.'+file_ext)
-    
-def nsi_emitents_securities(method,headers,update_date,file_ext):
 
-    data = {"count":100000,"filter": update_date}
-    if method in ["Info/EmitentsExt"]:
-        data["inn_as_string"] = "TRUE"
-    
-    result = requests.post(
-            MainRequestUrl+method,
-            data=json.dumps(data),
-            headers=headers)
-    save_data(result,nsi_data_path(method,file_ext),method=method)
-    return result
 
-def nsi_request(method,headers,file_ext,update_date = None):
-    
-    result = requests.post(
-            MainRequestUrl+method,
-            data=json.dumps({"count":100000}),
-            headers=headers)
-    save_data(result,nsi_data_path(method,file_ext),method = method)
-    return result
-
-def download_nsi(headers,nsi_delta,file_ext):
-    update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
-    update_date = "UPDATE_DATE > #{update_date}#".format(update_date=update_date)
     
 
-    list_emitents=nsi_emitents_securities("Info/EmitentsExt",headers,update_date,file_ext)
-    list_securities=nsi_emitents_securities("Info/Securities",headers,update_date,file_ext)
-
-    list_ratings = nsi_request("Rating/ListRatings",headers,file_ext)
-    list_scale_values = nsi_request("Rating/ListScaleValues",headers,file_ext)
-    
-    
-    return {"list_emitents":pd.DataFrame(list_emitents.json()),
-           "list_securities":pd.DataFrame(list_securities.json()),
-           "list_ratings":pd.DataFrame(list_ratings.json()),
-           "list_scale_values":pd.DataFrame(list_scale_values.json())}
-    
-def download_ratings(headers,date,file_ext):
-    
-    method = "Rating/CompanyRatingsHist"
-    
-    company_ratings=requests.post(
-        MainRequestUrl+method,
-        data=json.dumps({"count":100000,                                                                      
-          "dateFrom":"1900-01-01","dateTo":date}),
-        headers=headers)
-    save_data(company_ratings,os.path.join(main_folder,'Today',method.split("/")[-1]+'_'+date+'.'+file_ext),method = method)
- 
-
-    method = "Rating/SecurityRatingsHist"
-    sec_ratings=requests.post(
-            MainRequestUrl+method,
-            data=json.dumps({"count":100000,
-                "dateFrom":"1900-01-01","dateTo":date}),
-            headers=headers)
-    save_data(company_ratings,os.path.join(main_folder,'Today',method.split("/")[-1]+'_'+date+'.'+file_ext),method = method)
-    
-    return {"company_ratings":pd.DataFrame(company_ratings.json()),"sec_ratings":pd.DataFrame(sec_ratings.json())}
-
-def get_metadata_xml(method,ret_df = False):
-    req = requests.get(config["Settings"]["MetadataUrl"]+method+".md")
-    metadata = pd.read_html(markdown.markdown(req.text,extensions=['tables']))[-1][["Наименование","Тип"]]
-    metadata.columns = ["name","type"]
-    metadata["name"] = metadata["name"].str.upper()
-    
-    if ret_df:
-        return metadata
-    else:
-        metadata = metadata.to_dict("records")
-        metadata = "".join(["""<column name="{name}" type="{type}"/>""".format(**d) for d in metadata])
-        metadata = """<?xml version="1.0" encoding="utf-8"?><tableResult><metadata /><columns>""" + metadata + "</columns>"
-        return metadata
 
 def json_to_xml(data_json):
     xml = dicttoxml(data_json,custom_root="rows", item_func=lambda x:"row",attr_type=False)
     xml = xml.decode()
     return xml
 
-def save_data(request,path,method = None):
-    file_extension = path.split(".")[-1] 
-    if file_extension == "json":
-        save_json(request,path)
-    elif file_extension == "xml":
-        save_xml(request,path,method)
             
-def save_xml(request,path,method):
-    xml = get_metadata_xml(method)+json_to_xml(request.json()) 
-    with open(path,'w', encoding='utf-8') as f:
-        f.write(xml)
-
-        
 def save_json(request,path):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(request.json(), f, ensure_ascii=False, indent=4)
 
 
-def send_yandex_driver(subject,filepath):
 
-    # Compose attachment
-    part = MIMEBase('application', "octet-stream")
-    part.set_payload(open(filepath,"rb").read() )
-    encoders.encode_base64(part)
-    part.add_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(filepath))
-
-    # Compose message
-    msg = MIMEMultipart()
-    msg['From'] = config["Yandex"]["Login"]
-    msg['To'] = config["Mailing"]["To"]
-    msg["Subject"]="RatingsHistory"
-    msg.attach(part)
-
-    # Send mail
-    smtp = smtplib.SMTP_SSL('smtp.yandex.ru')
-    smtp.connect('smtp.yandex.ru')
-    smtp.login(config["Yandex"]["Login"], config["Yandex"]["Password"])
-    smtp.sendmail(config["Yandex"]["Login"], config["Mailing"]["To"], msg.as_string())
-    smtp.quit()
-
-def clear_folder():
+def clear_folder(config):
     files = glob.glob(os.path.join(config["Settings"]["MainFolder"],"Today","*"))
     for f in files:
         os.remove(f)
-    
-def download_ru_data_main(send = False,ret_result = False):
-    """
-    downloads,save and send data (if send=True)
-    
-    returns dict with nsi and ratings (for last used data) if ret_result=True
-    
-    """
-    result = {}
-    req_login=login()
-    if req_login is None:
-        print ("Login Failed")
-    else:
-        headers = req_login["headers"]
-
-        #delete previous file
-        try:
-            os.remove(os.path.join(main_folder,"TodayRatings.zip"))
-        except Exception:
-            pass
-        #delete previous files
-        clear_folder()
-        dates = get_dates(start_date=None,end_date=None)
-        for date in dates["dates"]:
-            data = download_ratings(headers,date,"xml")
-            result.update(data)
-        nsi = download_nsi(headers,dates["nsi_delta"],"xml")
-        result.update(nsi)
         
-        #make archive
-        shutil.make_archive(os.path.join(main_folder,"TodayRatings"), 'zip', os.path.join(main_folder,"Today"))
-        time.sleep(10)
-        #delete downloaded files
-        clear_folder()
+if __name__ == "__main__":
+    RuData(download = True)
 
-        #send
-        if send:
-            if config["Mailing"]["Type"] == "Script":
-                os.system(config["Mailing"]["ScriptPath"])
-            elif config["Mailing"]["Type"] == "Yandex":
-                send_yandex_driver('RatingsHistory',os.path.join(main_folder,"TodayRatings.zip"))
-
-        #finish
-        errors=0
-        log_off = requests.post(
-            MainRequestUrl+"Account/Logoff",
-            headers=headers)
-        
-        if not ret_result:
-            result = None
-        return result
-        
