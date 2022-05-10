@@ -114,7 +114,7 @@ def get_dates(start_date = None,end_date=None):
 def nsi_data_path(method,file_ext):
     return os.path.join(main_folder,'Today',method.split("/")[-1]+'.'+file_ext)
     
-def nsi_emitents_securities(method,update_date,file_ext):
+def nsi_emitents_securities(method,headers,update_date,file_ext):
 
     data = {"count":100000,"filter": update_date}
     if method in ["Info/EmitentsExt"]:
@@ -126,31 +126,27 @@ def nsi_emitents_securities(method,update_date,file_ext):
             headers=headers)
     save_data(result,nsi_data_path(method,file_ext),method=method)
     return result
+
+def nsi_request(method,headers,file_ext,update_date = None):
     
+    result = requests.post(
+            MainRequestUrl+method,
+            data=json.dumps({"count":100000}),
+            headers=headers)
+    save_data(result,nsi_data_path(method,file_ext),method = method)
+    return result
 
 def download_nsi(headers,nsi_delta,file_ext):
     update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
     update_date = "UPDATE_DATE > #{update_date}#".format(update_date=update_date)
     
 
-    list_emitents=nsi_emitents_securities("Info/EmitentsExt",update_date,file_ext)
-    list_securities=nsi_emitents_securities("Info/Securities",update_date,file_ext)
+    list_emitents=nsi_emitents_securities("Info/EmitentsExt",headers,update_date,file_ext)
+    list_securities=nsi_emitents_securities("Info/Securities",headers,update_date,file_ext)
 
-  
-
-    method = "Rating/ListRatings"
-    list_ratings=requests.post(
-            MainRequestUrl+method,
-            data=json.dumps({"count":100000}),
-            headers=headers)
-    save_data(list_ratings,nsi_data_path(method,file_ext),method = method)
-
-    method = "Rating/ListScaleValues"
-    list_scale_values=requests.post(
-            MainRequestUrl+method,
-            data=json.dumps({"count":100000}), 
-            headers=headers)
-    save_data(list_scale_values,nsi_data_path(method,file_ext),method = method)
+    list_ratings = nsi_request("Rating/ListRatings",headers,file_ext)
+    list_scale_values = nsi_request("Rating/ListScaleValues",headers,file_ext)
+    
     
     return {"list_emitents":pd.DataFrame(list_emitents.json()),
            "list_securities":pd.DataFrame(list_securities.json()),
