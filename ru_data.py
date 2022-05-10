@@ -140,7 +140,7 @@ class RuData():
     
     def api_request(self,method,**kwargs):
 
-        data = {"count":100000}
+        data = {}
         for key,value in kwargs.items():
             if key not in ["path"]:
                 data[key] = value
@@ -163,8 +163,8 @@ class RuData():
         update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
         update_date = f"UPDATE_DATE > #{update_date}#"
 
-        list_emitents = self.api_request("Info/EmitentsExt",filter=update_date)
-        list_securities = self.api_request("Info/Securities",filter=update_date)
+        list_emitents = self.api_request("Info/EmitentsExt",filter=update_date,count=100000)
+        list_securities = self.api_request("Info/Securities",filter=update_date,count=100000)
 
         list_ratings = self.api_request("Rating/ListRatings")
         list_scale_values = self.api_request("Rating/ListScaleValues")
@@ -287,11 +287,6 @@ def get_dates(start_date = None,end_date=None):
             dates = get_dates_from_now()
             nsi_delta = 10
     return {"dates":dates,"nsi_delta":nsi_delta}
-
-
-
-
-    
 
 
 def json_to_xml(data_json):
