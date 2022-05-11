@@ -30,17 +30,19 @@ Methods
     Main function for downloading all data
 -- api_request
     Method for creating,sending and save request
-
+-- save_xml
+    saves request response to xml file using metadata 
 
 Functions
 -- get_dates (Defining dates)
     - NSI (1.): 10 previous days and 90 previous days on monday 
-    - Ratings Dict (2.): current data always
+    - Ratings Dict (2.): not used, current data always
     - Ratings Data (3.): current and 90 previous days on monday
         P.S. Rating/CompanyRatingsHist and Rating/SecurityRatingsHist provides data 
             for previous 5 days for every input date
 -- save_json
     saves request response to json file
+
 
 example:
     see download_ru_data_main
@@ -135,7 +137,9 @@ class RuData():
      
     
     def api_request(self,method,save,**kwargs):
-
+        """
+        kwargs are added to request body as separate agruments
+        """
         data = {}
         for key,value in kwargs.items():
             if key not in ["path"]:
