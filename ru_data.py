@@ -63,10 +63,6 @@ import markdown
 from dicttoxml import dicttoxml
 import glob
 
-config = configparser.ConfigParser()
-config.read("ru_data.ini");
-main_folder = config["Settings"]["MainFolder"]
-MainRequestUrl = config["Settings"]["MainRequestUrl"]
 
 class RuData():
     
@@ -138,7 +134,7 @@ class RuData():
 
      
     
-    def api_request(self,method,**kwargs):
+    def api_request(self,method,save,**kwargs):
 
         data = {}
         for key,value in kwargs.items():
@@ -153,8 +149,8 @@ class RuData():
             path = kwargs["path"]
         else:
             path = None
-       
-        self.save_data(result,method,path=path)
+        if save:
+            self.save_data(result,method,path=path)
         result = pd.DataFrame(result.json())
         
         return result
@@ -163,11 +159,11 @@ class RuData():
         update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
         update_date = f"UPDATE_DATE > #{update_date}#"
 
-        list_emitents = self.api_request("Info/EmitentsExt",filter=update_date,count=100000)
-        list_securities = self.api_request("Info/Securities",filter=update_date,count=100000)
+        list_emitents = self.api_request("Info/EmitentsExt",True,filter=update_date,count=100000,inn_as_string="TRUE")
+        list_securities = self.api_request("Info/Securities",True,filter=update_date,count=100000)
 
-        list_ratings = self.api_request("Rating/ListRatings")
-        list_scale_values = self.api_request("Rating/ListScaleValues")
+        list_ratings = self.api_request("Rating/ListRatings",True)
+        list_scale_values = self.api_request("Rating/ListScaleValues",True)
 
 
         return {"list_emitents":list_emitents,
@@ -178,10 +174,10 @@ class RuData():
     def download_ratings(self,date):
     
         method = "Rating/CompanyRatingsHist"
-        company_ratings = self.api_request(method,dateFrom="1900-01-01",dateTo=date,path=self.ratings_path(method,date))
+        company_ratings = self.api_request(method,True,dateFrom="1900-01-01",dateTo=date,path=self.ratings_path(method,date))
 
         method = "Rating/SecurityRatingsHist"
-        sec_ratings = self.api_request(method,dateFrom="1900-01-01",dateTo=date,path=self.ratings_path(method,date))
+        sec_ratings = self.api_request(method,True,dateFrom="1900-01-01",dateTo=date,path=self.ratings_path(method,date))
 
 
         return {"company_ratings":company_ratings,"sec_ratings":sec_ratings}
