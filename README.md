@@ -1,7 +1,7 @@
 RU Data parser for official API https://docs.efir-net.ru/dh2/#/
 
 
-config file ru_data.ini example
+config file ru_data.ini (must be in the same directory as ru_data.py) example
 
 [Account] <br />
 Login = *** <br />
