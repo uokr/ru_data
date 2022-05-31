@@ -149,15 +149,18 @@ class RuData():
                 self.config["Settings"]["MainRequestUrl"]+method,
                 data=json.dumps(data),
                 headers=self.headers)
-        if "path" in kwargs.keys():
-            path = kwargs["path"]
+        if result.status_code == 200:
+            if "path" in kwargs.keys():
+                path = kwargs["path"]
+            else:
+                path = None
+            if save:
+                self.save_data(result,method,path=path)
+            result = pd.DataFrame(result.json())
+
+            return result
         else:
-            path = None
-        if save:
-            self.save_data(result,method,path=path)
-        result = pd.DataFrame(result.json())
-        
-        return result
+            print(result.json()["Error"])
 
     def download_nsi(self,nsi_delta):
         update_date = (datetime.now()-timedelta(days=nsi_delta)).strftime('%Y-%m-%d')
